@@ -20,7 +20,6 @@
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
 #include "hardware_interface/types/hardware_interface_status_values.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
-#include "hardware_interface/visibility_control.h"
 
 
 namespace uf_robot_hardware

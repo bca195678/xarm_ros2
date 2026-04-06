@@ -708,30 +708,29 @@ class MoveItConfigsBuilder(ParameterBuilder):
                     parameter_file = default_config_folder / 'ompl_defaults.yaml'
                     planning_yaml.update(load_yaml(parameter_file))
                 self.__moveit_configs.planning_pipelines[pipeline] = planning_yaml
-            # # Special rule to add ompl planner_configs
-            # if 'ompl' in self.__moveit_configs.planning_pipelines:
-            #     ompl_config = self.__moveit_configs.planning_pipelines['ompl']
-            #     if os.environ.get('ROS_DISTRO', '') > 'iron':
-            #         ompl_config.update({
-            #             'planning_plugins': ['ompl_interface/OMPLPlanner'],
-            #             'request_adapters': [
-            #                 'default_planning_request_adapters/ResolveConstraintFrames',
-            #                 'default_planning_request_adapters/ValidateWorkspaceBounds',
-            #                 'default_planning_request_adapters/CheckStartStateBounds',
-            #                 'default_planning_request_adapters/CheckStartStateCollision',
-            #             ],
-            #             'response_adapters': [
-            #                 'default_planning_response_adapters/AddTimeOptimalParameterization',
-            #                 'default_planning_response_adapters/ValidateSolution',
-            #                 'default_planning_response_adapters/DisplayMotionPath',
-            #             ],
-            #         })
-            #     else:
-            #         ompl_config.update({
-            #             'planning_plugin': 'ompl_interface/OMPLPlanner',
-            #             'request_adapters': """default_planner_request_adapters/AddTimeOptimalParameterization default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/FixStartStateBounds default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints""",
-            #             'start_state_max_bounds_error': 0.1,
-            #         })
+            if 'ompl' in self.__moveit_configs.planning_pipelines:
+                ompl_config = self.__moveit_configs.planning_pipelines['ompl']
+                if os.environ.get('ROS_DISTRO', '') > 'iron':
+                    ompl_config.update({
+                        'planning_plugins': ['ompl_interface/OMPLPlanner'],
+                        'request_adapters': [
+                            'default_planning_request_adapters/ResolveConstraintFrames',
+                            'default_planning_request_adapters/ValidateWorkspaceBounds',
+                            'default_planning_request_adapters/CheckStartStateBounds',
+                            'default_planning_request_adapters/CheckStartStateCollision',
+                        ],
+                        'response_adapters': [
+                            'default_planning_response_adapters/AddTimeOptimalParameterization',
+                            'default_planning_response_adapters/ValidateSolution',
+                            'default_planning_response_adapters/DisplayMotionPath',
+                        ],
+                    })
+                else:
+                    ompl_config.update({
+                        'planning_plugin': 'ompl_interface/OMPLPlanner',
+                        'request_adapters': """default_planner_request_adapters/AddTimeOptimalParameterization default_planner_request_adapters/FixWorkspaceBounds default_planner_request_adapters/FixStartStateBounds default_planner_request_adapters/FixStartStateCollision default_planner_request_adapters/FixStartStatePathConstraints""",
+                        'start_state_max_bounds_error': 0.1,
+                    })
         else:
             pipelines = list(set(pipelines)) if pipelines else ['ompl']
             default_planning_pipeline = default_planning_pipeline if default_planning_pipeline else 'ompl'
