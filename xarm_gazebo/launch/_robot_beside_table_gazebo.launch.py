@@ -268,7 +268,7 @@ def launch_setup(context, *args, **kwargs):
             executable="spawn_entity.py",
             output='screen',
             arguments=[
-                '-topic', 'robot_description',
+                '-string', robot_description['robot_description'],
                 # '-entity', '{}'.format(xarm_type),
                 '-entity', 'UF_ROBOT',
                 '-x', '-0.2',

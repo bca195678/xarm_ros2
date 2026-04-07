@@ -1,16 +1,15 @@
 # Lite6 ROS2 Setup Instructions
 
-This file is intended to be read by Claude Code running inside WSL (Ubuntu-24.04).
+This file is intended to be read by Claude Code running inside WSL (Ubuntu-22.04).
 
 ## Environment
 
 - Robot: UFACTORY Lite6
 - Robot IP: 192.168.1.176
-- Host OS: Windows 11 with WSL2 (Ubuntu-24.04)
-- ROS2 distro: Jazzy (matches Ubuntu 24.04)
-- This repo on Windows: `D:\project\xarm_ros2`
-- This repo accessible in WSL at: `/mnt/d/project/xarm_ros2`
-- Branch: `humble` (no official Jazzy branch exists yet)
+- Host OS: Windows 11 with WSL2 (Ubuntu-22.04)
+- ROS2 distro: Humble (matches Ubuntu 22.04)
+- This repo accessible in WSL at: `/home/chester/project/xarm_ros2`
+- Branch: `humble`
 
 ---
 
@@ -37,23 +36,20 @@ sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] \
   http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
   | sudo tee /etc/apt/sources.list.d/ros2.list
-```
-
-Then update:
-```bash
 sudo apt update
 ```
 
 ---
 
-## Step 3 — Install ROS2 Jazzy + MoveIt + ros2_control
+## Step 3 — Install ROS2 Humble + MoveIt + ros2_control + Gazebo
 
 Check first: `which ros2`
 
 If missing:
 ```bash
-sudo apt install -y ros-jazzy-desktop ros-jazzy-moveit ros-dev-tools
-sudo apt install -y ros-jazzy-ros2-control ros-jazzy-ros2-controllers
+sudo apt install -y ros-humble-desktop ros-humble-moveit ros-dev-tools
+sudo apt install -y ros-humble-ros2-control ros-humble-ros2-controllers
+sudo apt install -y ros-humble-gazebo-ros-pkgs ros-humble-gazebo-ros2-control
 ```
 
 ---
@@ -63,7 +59,7 @@ sudo apt install -y ros-jazzy-ros2-control ros-jazzy-ros2-controllers
 The `xarm_sdk/cxx` submodule must be initialized before building:
 
 ```bash
-cd /mnt/d/project/xarm_ros2
+cd /home/chester/project/xarm_ros2
 git submodule sync
 git submodule update --init --remote
 ```
@@ -74,19 +70,30 @@ git submodule update --init --remote
 
 ```bash
 mkdir -p ~/dev_ws/src
-ln -sf /mnt/d/project/xarm_ros2 ~/dev_ws/src/xarm_ros2
+ln -sf /home/chester/project/xarm_ros2 ~/dev_ws/src/xarm_ros2
 
 cd ~/dev_ws
-source /opt/ros/jazzy/setup.bash
+source /opt/ros/humble/setup.bash
 
 sudo rosdep init 2>/dev/null || true
+sudo rosdep fix-permissions
 rosdep update
 
-rosdep install --from-paths src --ignore-src --rosdistro jazzy -y \
-  --skip-keys="gazebo_ros realsense_gazebo_plugin gazebo_ros2_control gazebo_plugins"
+rosdep install --from-paths src --ignore-src --rosdistro humble --simulate
 ```
 
-> Note: The `--skip-keys` are needed because `xarm_gazebo` uses Gazebo Classic which is EOL on Ubuntu 24.04/Jazzy. Gazebo simulation is not supported on this branch.
+The `--simulate` flag shows what will be installed. The actual install requires sudo, so run it manually:
+
+```bash
+sudo apt-get install -y \
+  ros-humble-joint-state-publisher \
+  ros-humble-moveit-servo \
+  ros-humble-image-view \
+  ros-humble-tf-transformations \
+  ros-humble-find-object-2d
+```
+
+> Note: `sudo rosdep update` should be avoided — run `sudo rosdep fix-permissions` first, then `rosdep update` (no sudo).
 
 ---
 
@@ -94,11 +101,11 @@ rosdep install --from-paths src --ignore-src --rosdistro jazzy -y \
 
 ```bash
 cd ~/dev_ws
-source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install --packages-ignore realsense_gazebo_plugin xarm_gazebo
+source /opt/ros/humble/setup.bash
+colcon build --symlink-install
 ```
 
-Expected output: `Summary: 11 packages finished`
+Expected output: `Summary: 13 packages finished`
 
 Deprecation warnings in `xarm_controller` and `xarm_planner` are harmless.
 
@@ -107,7 +114,7 @@ Deprecation warnings in `xarm_controller` and `xarm_planner` are harmless.
 ## Step 7 — Source in ~/.bashrc
 
 ```bash
-grep -q "ros/jazzy/setup.bash" ~/.bashrc || echo "source /opt/ros/jazzy/setup.bash" >> ~/.bashrc
+grep -q "ros/humble/setup.bash" ~/.bashrc || echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
 grep -q "dev_ws/install/setup.bash" ~/.bashrc || echo "source ~/dev_ws/install/setup.bash" >> ~/.bashrc
 source ~/.bashrc
 ```
@@ -121,17 +128,17 @@ source ~/dev_ws/install/setup.bash
 ros2 pkg list | grep xarm
 ```
 
-Expected packages: `xarm_api`, `xarm_controller`, `xarm_description`, `xarm_moveit_config`, `xarm_moveit_servo`, `xarm_msgs`, `xarm_planner`, `xarm_sdk`, `d435i_xarm_setup`
+Expected packages: `xarm_api`, `xarm_controller`, `xarm_description`, `xarm_gazebo`, `xarm_moveit_config`, `xarm_moveit_servo`, `xarm_msgs`, `xarm_planner`, `xarm_sdk`, `d435i_xarm_setup`
 
 ---
 
 ## Known Fixes Applied to This Repo
 
-These bugs exist in the `humble` branch when used with Jazzy and have already been patched in this repo. If you re-clone, you will need to reapply them.
+These bugs exist in the `humble` branch and have already been patched. If you re-clone, you will need to reapply them.
 
 ### Fix 1 — Remove obsolete header include
 
-`hardware_interface/visibility_control.h` was removed in Jazzy. Remove the include from:
+`hardware_interface/visibility_control.h` was removed in newer ros2_control releases and is missing on both Humble and Jazzy. Remove the include from:
 
 - `xarm_controller/include/xarm_controller/hardware/uf_robot_system_hardware.h` (line 25)
 - `xarm_controller/include/xarm_controller/hardware/bak_uf_robot_fake_system_hardware.h` (line 23)
@@ -141,7 +148,7 @@ Delete this line from both files:
 #include "hardware_interface/visibility_control.h"
 ```
 
-### Fix 2 — Enable OMPL planning plugin for Jazzy
+### Fix 2 — Enable OMPL planning plugin
 
 The code that registers the OMPL planner was commented out in `uf_ros_lib`. Without this, MoveIt shows "NO PLANNING LIBRARY LOADED" and cannot plan any motion.
 
@@ -177,6 +184,30 @@ if 'ompl' in self.__moveit_configs.planning_pipelines:
 
 Also apply the same uncomment in `uf_ros_lib/uf_ros_lib/substitutions/planning_pipelines.py` around line 126.
 
+### Fix 3 — Gazebo spawn entity QoS mismatch
+
+`spawn_entity.py` subscribes to `/robot_description` with `volatile` QoS durability, but `robot_state_publisher` publishes it with `transient_local` (latched). ROS2 treats these as incompatible, so the spawn node never receives the message and the robot silently fails to appear in Gazebo — only the table is visible.
+
+**File:** `xarm_gazebo/launch/_robot_beside_table_gazebo.launch.py` (line ~271, in the `else` / Gazebo Classic branch)
+
+Change `-topic` to `-string`:
+
+```python
+# Before
+arguments=[
+    '-topic', 'robot_description',
+    ...
+]
+
+# After
+arguments=[
+    '-string', robot_description['robot_description'],
+    ...
+]
+```
+
+This passes the URDF content directly instead of subscribing to the topic, bypassing the QoS issue entirely.
+
 ---
 
 ## How to Run
@@ -188,6 +219,14 @@ ros2 launch xarm_moveit_config lite6_moveit_realmove.launch.py robot_ip:=192.168
 ```
 
 This single command starts the driver, move_group, and RViz. Do NOT run the driver separately in another terminal — it will conflict.
+
+### Launch Gazebo simulation
+
+```bash
+ros2 launch xarm_gazebo lite6_beside_table_gazebo.launch.py
+```
+
+Gazebo Classic 11 is supported on Ubuntu 22.04/Humble.
 
 ### Control via service calls (without MoveIt)
 
@@ -220,4 +259,4 @@ ros2 service call /ufactory/set_position xarm_msgs/srv/MoveCartesian \
 - Always enable joints and set mode+state before sending motion commands
 - Speed is in mm/s, acceleration in mm/s², pose is [x, y, z, roll, pitch, yaw]
 - Controller overrun warnings (`missed its desired rate of 150 Hz`) are expected on WSL2 — WSL2 has no real-time kernel. They are harmless.
-- Gazebo simulation is not supported — `xarm_gazebo` uses Gazebo Classic which is EOL on Ubuntu 24.04
+- Gazebo Classic 11 is supported on Ubuntu 22.04 (Humble). It is NOT available on Ubuntu 24.04 (Jazzy).
