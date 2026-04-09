@@ -242,6 +242,58 @@ huggingface-cli download openvla/openvla-7b
 ```
 This node does not exist yet for xarm_ros2 — needs to be built.
 
+### Network topology
+
+Lite6 and D435i connect to the PC. The A100/A30 server is on a different subnet.
+
+```
+  Subnet A (desk)                  Subnet B (server room)
+  ───────────────                  ──────────────────────
+
+  ┌─────────────────┐              ┌─────────────────┐
+  │   D435i Camera  │              │  A100/A30       │
+  │   (USB 3.0)     │              │  Server         │
+  └────────┬────────┘              │  OpenVLA 7B     │
+           │                       └────────┬────────┘
+           ▼                                │
+  ┌─────────────────┐   REST API            │
+  │   Windows PC    │ ◄─────────────────────┘
+  │   WSL2          │  (cross-subnet,
+  │                 │   HTTP works if routing exists)
+  │  ROS2 nodes     │
+  │  camera driver  │
+  │  bridge node    │
+  └────────┬────────┘
+           │ Ethernet (xArm protocol)
+           ▼
+  ┌─────────────────┐
+  │   Lite6 Arm     │
+  └─────────────────┘
+```
+
+Cross-subnet API call works as long as:
+- PC can ping the server (`ping <server-ip>`)
+- Server firewall allows incoming connections on the API port
+
+If firewall blocks direct access, use an SSH tunnel:
+```bash
+# Forward server port 8000 to localhost on PC
+ssh -L 8000:localhost:8000 user@<server-ip>
+```
+Then bridge node calls `http://localhost:8000` instead of the server IP directly.
+
+### Jetson Xavier — is it needed for OpenVLA?
+
+No, not strictly. For OpenVLA the PC can take the Jetson's role:
+- Camera plugs into PC via USB
+- ROS2 bridge runs on PC (WSL2)
+- PC calls OpenVLA on the server
+
+Jetson becomes useful when:
+- System needs to run standalone without a PC
+- Everything self-contained next to the robot
+- Adding more on-device processing (e.g. YOLOv8 running locally on Xavier)
+
 **Stage 5 — Fine-tuning (optional, after camera arrives)**
 1. Collect demonstrations — teleoperate Lite6, record camera + joint states
 2. Format into LeRobot/RLDS format
