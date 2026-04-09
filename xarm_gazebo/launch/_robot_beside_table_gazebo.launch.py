@@ -7,6 +7,7 @@
 # Author: Vinman <vinman.wen@ufactory.cc> <vinman.cub@gmail.com>
 
 import os
+import tempfile
 import yaml
 from pathlib import Path
 from ament_index_python import get_package_share_directory
@@ -262,13 +263,17 @@ def launch_setup(context, *args, **kwargs):
                 'gui_required': 'true',
             }.items(),
         )
+        # Write URDF to a temp file to avoid QoS mismatch with -topic
+        urdf_file = tempfile.NamedTemporaryFile(mode='w', suffix='.urdf', delete=False)
+        urdf_file.write(robot_description['robot_description'])
+        urdf_file.close()
         # gazebo spawn entity node
         gazebo_spawn_entity_node = Node(
             package="gazebo_ros",
             executable="spawn_entity.py",
             output='screen',
             arguments=[
-                '-string', robot_description['robot_description'],
+                '-file', urdf_file.name,
                 # '-entity', '{}'.format(xarm_type),
                 '-entity', 'UF_ROBOT',
                 '-x', '-0.2',

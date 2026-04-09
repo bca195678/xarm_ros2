@@ -139,7 +139,7 @@ Unity has an official **ROS-TCP-Connector** package. Works well with Windows + W
 | | UFACTORY Studio | ROS |
 |---|---|---|
 | Setup | None | Significant |
-| Ease of use | Easy GUI | Code-based |
+| Ease of use | Easy GUI |  Code-based |
 | Connects to other systems | No | Yes |
 | Computer vision | No | Yes |
 | AI integration | No | Yes |
@@ -147,3 +147,167 @@ Unity has an official **ROS-TCP-Connector** package. Works well with Windows + W
 | Best for | Quick tasks, simple automation | Complex systems, research, custom applications |
 
 **Practical approach:** Use Studio for quick testing and simple tasks. Use ROS when you need to connect the arm to cameras, AI, web interfaces, or other hardware.
+
+---
+
+## OpenVLA
+
+OpenVLA (Open Vision-Language-Action) is a 7B parameter model from Stanford/Berkeley. Unlike the LLM+vision pipeline approach, it is a single end-to-end model that takes a camera image + language instruction and outputs robot actions directly.
+
+### Traditional pipeline vs OpenVLA
+
+```
+Traditional:
+camera → YOLOv8 → LLM planner → MoveIt → arm
+
+OpenVLA:
+camera + "pick up the cup" → OpenVLA → arm
+```
+
+### Key facts
+- Open source — weights on HuggingFace, free to use
+- Trained on 970k real robot demonstrations (Open X-Embodiment dataset)
+- Input: camera image + text instruction
+- Output: end-effector delta poses or joint angles
+- Fine-tunable on custom robots with LoRA (efficient, hours not days)
+- Not trained specifically on Lite6 — fine-tuning needed for best results
+
+### Hardware fit
+
+| Hardware | Feasibility |
+|---|---|
+| A100 server | ✓ ideal — inference + fine-tuning |
+| A30 server | ✓ good — 24GB VRAM handles inference + fine-tuning |
+| Jetson Xavier | ✗ too slow for real-time (7B model) |
+
+### Comparison to LLM pipeline
+
+| | LLM pipeline | OpenVLA |
+|---|---|---|
+| Components | Many (detection + planner + MoveIt) | One model |
+| Setup complexity | High | Medium |
+| Generalization | Good | Very good |
+| Custom objects | Retrain YOLOv8 | Fine-tune OpenVLA |
+| Speed | Fast (small components) | Slower (7B model per step) |
+| Hardware | Xavier handles it | Needs A30/A100 for real-time |
+| Data needed | Less | Needs demonstrations |
+
+### Integration work needed
+OpenVLA outputs actions in its own format. A ROS2 bridge node needs to be built that:
+1. Subscribes to `/camera/color/image_raw`
+2. Sends image + instruction to OpenVLA (running on A30/A100)
+3. Converts output action to ROS2 commands (`/ufactory/set_position` or MoveIt)
+
+This bridge does not exist yet for xarm_ros2 — needs to be built.
+
+### Fine-tuning path for Lite6
+1. **Collect demonstrations** — teleoperate the Lite6 doing tasks, record camera + joint states
+2. **Format data** — convert to OpenVLA's expected format (RLDS/LeRobot format)
+3. **Fine-tune with LoRA** — run on A100/A30
+4. **Deploy** — inference on A30/A100 server, actions sent to arm via ROS2 bridge
+
+### Realistic implementation path
+1. Get D435i camera + set up Xavier
+2. Build ROS2 ↔ OpenVLA bridge node (runs on A30/A100)
+3. Test with pretrained weights first (no fine-tuning needed to start)
+4. Collect Lite6 demonstrations and fine-tune for better accuracy
+
+---
+
+## Hardware Available
+
+### Jetson Xavier (model TBD — need to check)
+- Fresh device, not yet set up
+- Will serve as the robot brain — runs ROS2 nodes, camera processing, YOLOv8 inference
+- Supports keyboard + mouse + HDMI monitor for direct interaction
+- Day-to-day use: headless via SSH
+
+**Key specs to check:**
+- Which model: NX (8/16GB) or AGX (16/32GB)
+- RAM amount
+- Whether an NVMe SSD is already installed (eMMC alone is too small — 32GB fills up fast with JetPack + ROS2 + models)
+- If no NVMe: buy a 256GB+ M.2 NVMe SSD (~$30-50) before setting up
+
+**What it can run:**
+| Component | Feasibility |
+|---|---|
+| ROS2 + robot driver | ✓ easy |
+| YOLOv8-nano | ✓ fast |
+| YOLOv8 full | ✓ good |
+| LLM 7B (task planner) | ✓ slow (~2-3 tok/s) |
+| VLM 7B (LLaVA etc.) | ✓ slow |
+| LLM + VLM together | depends on RAM |
+
+### A100 Server
+- Run full YOLOv8 or fine-tune on custom objects
+- Run large LLMs locally (LLaMA 3, Mistral 70B etc.) as task planner
+- Run VLMs locally (LLaVA, InternVL) for open-vocabulary detection
+- NVIDIA Isaac Sim for synthetic training data generation
+
+### A30 Server
+- 24GB VRAM
+- Similar to A100 for most tasks
+- Suitable for YOLOv8, medium LLMs (up to ~70B quantized), VLMs
+
+---
+
+## Target AI Pipeline (when D435i arrives)
+
+```
+D435i camera
+      │
+      ▼
+Jetson Xavier
+  - ROS2 node
+  - YOLOv8 inference (fast, on-device)
+  - publishes object 3D position
+      │
+      ▼
+A100/A30 server (optional)
+  - LLM task planner ("clean the table" → step-by-step plan)
+  - or VLM for complex scenes
+      │
+      ▼
+Lite6 arm
+  - MoveIt executes motion
+```
+
+---
+
+## Jetson Xavier Setup Plan
+
+### Step 1 — Flash JetPack (one time only)
+
+JetPack is NVIDIA's OS bundle for Jetson: Ubuntu + CUDA + cuDNN + TensorRT + all drivers.
+Recommended version: **JetPack 5.x** (Ubuntu 20.04, most stable ecosystem).
+
+Requires SDK Manager (GUI app) running on a machine with physical USB-C access to the Xavier.
+
+**Option A — Use A100/A30 server (simplest)**
+- If servers run native Ubuntu and Xavier can be physically connected via USB-C
+- Install SDK Manager on the server, flash from there
+
+**Option B — usbipd into WSL2 on Windows PC**
+- Install `usbipd-win` on Windows (has `.msi` installer)
+- Put Xavier in recovery mode, connect USB-C to PC
+- In PowerShell (admin):
+  ```powershell
+  usbipd list
+  usbipd bind --busid <ID>
+  usbipd attach --wsl --busid <ID>
+  ```
+- In WSL: verify with `lsusb` (should show "NVIDIA Corp.")
+- WSLg (Windows 11) supports GUI apps natively so SDK Manager runs in WSL directly
+- More steps but avoids needing a separate machine
+
+### Step 2 — After flashing
+1. Connect keyboard + mouse + monitor directly to Xavier
+2. Complete Ubuntu initial setup
+3. Install ROS2 Humble (same steps as PC)
+4. Add NVMe SSD if not already present
+5. Switch to SSH for all further development
+
+### Step 3 — Connect to PC over network
+- Xavier and PC on same network (ethernet recommended for ROS2)
+- SSH from WSL: `ssh chester@<xavier-ip>`
+- ROS2 nodes run on Xavier, RViz/Gazebo visualization on PC
