@@ -408,3 +408,245 @@ Requires SDK Manager (GUI app) running on a machine with physical USB-C access t
 - Xavier and PC on same network (ethernet recommended for ROS2)
 - SSH from WSL: `ssh chester@<xavier-ip>`
 - ROS2 nodes run on Xavier, RViz/Gazebo visualization on PC
+
+---
+
+## OpenVLA — Deeper Notes
+
+### How the model actually works
+
+OpenVLA is built on Prismatic VLM fine-tuned for action prediction. Actions are tokenized as text tokens.
+
+```
+Input:
+  - Image: 224×224 RGB (single frame, not video)
+  - Text: "In: What action should the robot take to {instruction}?"
+
+Output:
+  - 7 numbers decoded from text tokens
+  - Format: [Δx, Δy, Δz, Δroll, Δpitch, Δyaw, gripper_open]
+  - These are end-effector deltas, not joint angles
+```
+
+For Lite6 (6-DOF), the 7th dimension (gripper) maps naturally to the vacuum gripper on/off.
+
+### Control frequency reality check
+
+| Hardware | Inference time | Control Hz |
+|---|---|---|
+| A100 (80GB) | ~80ms | ~12 Hz |
+| A30 (24GB) | ~120–150ms | ~6–8 Hz |
+
+Most manipulation tasks need 5–10 Hz minimum. A30 is borderline — usable for slow pick-and-place.
+Network hop (PC → server → PC) adds ~5–20ms on same LAN. Tolerable.
+
+### OpenVLA-OFT (newer, preferred over base model)
+
+OpenVLA-OFT (Optimized Fine-Tuning) improves on the original:
+- **Parallel decoding** instead of autoregressive token generation → ~6× faster inference
+- **Action chunking** (predicts multiple steps ahead, like ACT/Diffusion Policy)
+- Continuous action head instead of tokenized actions → smoother motion
+- Better fine-tuning efficiency with LoRA
+
+Use this over base OpenVLA if starting fresh.
+HuggingFace: `openvla/openvla-oft-pretrained-bridge`
+
+### ROS2 bridge node design
+
+```
+xarm_openvla_bridge/
+├── bridge_node.py          # main ROS2 node — 8 Hz control loop
+├── openvla_client.py       # HTTP client to inference server on A30
+├── action_executor.py      # converts EEF deltas → /ufactory/set_position
+└── config/
+    └── bridge_params.yaml  # server URL, control rate, safety limits
+```
+
+Safety layer required — raw deltas from pretrained model (not fine-tuned on Lite6) can be large:
+- Per-axis delta clamp (e.g. max 20mm per step)
+- Workspace bounding box check before execution
+- Emergency stop topic subscriber
+
+### Fine-tuning data — what to record per timestep
+
+- `/camera/color/image_raw` — compressed JPEG
+- `/ufactory/robot_states` — current joint positions + EEF pose
+- Timestamp + episode ID
+
+LeRobot format (HuggingFace standard): Parquet files for actions/observations, video files for images, `meta/info.json`.
+Use `lerobot` Python package for dataset creation. Need a ROS2 bag → LeRobot converter.
+
+**How many demos needed:** 50–200 demos per task with LoRA. Start with one simple repeatable task.
+
+### Smaller/faster alternatives to OpenVLA
+
+| Model | Size | Notes |
+|---|---|---|
+| OpenVLA-OFT | 7B | Faster inference, better fine-tuning |
+| Octo | ~90M | Transformer, runs on Jetson Xavier |
+| ACT | ~80M | Action chunking, works well with 50 demos |
+| Diffusion Policy | ~100M | State-of-the-art for dexterous tasks |
+| SmolVLA | 450M | Flow-matching (π0 architecture), comparable to OpenVLA |
+
+**Octo** is useful if latency matters more than accuracy — runs on Jetson, trained on Open X-Embodiment, some research groups have ROS2 bridges already.
+
+---
+
+## VLA Landscape Beyond OpenVLA
+
+### π0 / π0.5 — Physical Intelligence (best capability, self-hosted)
+
+Open-source weights on GitHub (`Physical-Intelligence/openpi`). No cloud API — but runs on the A30.
+
+Why it's better than OpenVLA:
+- **Flow-matching architecture** instead of token prediction → smoother, continuous actions
+- **50 Hz control rate** vs OpenVLA's ~8 Hz
+- Trained on 8 different robot embodiments
+- π0.5 (April 2025) adds open-world generalization
+
+```bash
+# Setup on A30
+conda create -n pi0 python=3.10
+conda activate pi0
+git clone https://github.com/Physical-Intelligence/openpi
+pip install -e openpi
+huggingface-cli download physical-intelligence/pi0
+```
+
+Fine-tuning path: same as OpenVLA — collect demos, convert to LeRobot format, run LoRA on A30.
+
+**Enterprise API:** Physical Intelligence is building a commercial API. Contact `pi.website` for enterprise/research access if self-hosting is not ideal.
+
+### Gemini Robotics-ER — Google DeepMind (cloud API, production)
+
+Built on Gemini 2.0, announced March 2025. The only production cloud VLA API currently available.
+
+- Available via **Google AI Studio** and **Vertex AI**
+- Handles dexterous tasks: origami folding, packing bags
+- Tested on ALOHA and bi-arm Franka — not yet documented for Lite6/xArm
+- Fine-tuning available with ~50–100 demos
+- Output: motor commands and trajectory/grasp predictions
+
+**Input/output format:** RGB image + natural language → motor commands. Mapping to Lite6's `/ufactory/set_position` requires a translation layer (same as OpenVLA bridge).
+
+To get access: apply at `ai.google.dev` / Vertex AI, or contact Google Cloud sales for robotics partnership.
+
+### Full VLA comparison
+
+| Model | Cloud API | Size | Control Hz | Best for |
+|---|---|---|---|---|
+| Gemini Robotics-ER | ✓ Vertex AI | Large | TBD | Cloud-first, no GPU owned |
+| π0.5 | ✗ self-hosted | 7B+ | 50 Hz | Best capability, have A30 |
+| OpenVLA-OFT | ✗ self-hosted | 7B | ~8 Hz | Good starting point |
+| SmolVLA | ✗ self-hosted | 450M | fast | Jetson-compatible |
+| Octo | ✗ self-hosted | 90M | fast | Lightweight, Jetson |
+
+---
+
+## Gemini 2.5 Pro as Task Planner (Cloud API — Available Today)
+
+This is the fastest path to get working before D435i arrives. Uses Gemini as the "brain" for high-level planning while local components handle real-time execution.
+
+### Architecture
+
+```
+Cloud (one API call per high-level instruction):
+  Gemini 2.5 Pro
+  Input:  current camera frame + "clean up the table"
+  Output: structured JSON plan → ["find cup", "grasp cup", "move to shelf", ...]
+
+Local (real-time, on Jetson/PC):
+  YOLOv8  → object detection + 3D position
+  MoveIt  → motion execution
+  Bridge  → converts plan steps to /ufactory/set_position calls
+```
+
+Gemini fires once per high-level instruction, not every control cycle. The arm moves at full speed locally. This avoids the 1–2s latency problem of cloud models.
+
+### What Gemini 2.5 Pro adds over a simpler planner
+
+- Understands spatial relationships from image ("the red cup near the edge")
+- Can count objects, read labels on items
+- Reasons about task ordering and dependencies
+- Handles novel instructions without retraining
+- Can ask for clarification if instruction is ambiguous
+
+### ROS2 bridge node — planned design
+
+```
+/camera/color/image_raw  ──►  gemini_planner_node
+/detected_objects         ──►  (JSON: {"cup": [x,y,z], ...} from YOLOv8)
+/gemini_planner/task      ──►  task instruction (std_msgs/String)
+
+gemini_planner_node:
+  1. On new task: capture frame + call Gemini API
+  2. Parse JSON plan returned by Gemini
+  3. For each step: look up object position, call /ufactory/set_position
+  4. Vacuum gripper: /ufactory/set_vacuum_gripper
+
+Gemini prompt output schema:
+  {
+    "steps": [
+      {"action": "pick",    "object": "cup",   "reason": "..."},
+      {"action": "place",   "target": "shelf",  "reason": "..."}
+    ],
+    "requires_clarification": false
+  }
+
+Valid actions: pick | place | move_to | open_gripper | close_gripper | scan
+```
+
+### Key xarm_ros2 service facts (verified from source)
+
+```
+# Cartesian move (mm + radians)
+/ufactory/set_position   →  xarm_msgs/srv/MoveCartesian
+  req.pose = [x, y, z, roll, pitch, yaw]  # mm, radians
+  req.speed = 160.0   # mm/s
+  req.acc   = 1000.0
+  req.wait  = True
+
+# Vacuum gripper (Lite6 default)
+/ufactory/set_vacuum_gripper  →  xarm_msgs/srv/VacuumGripperCtrl
+  req.on   = True/False
+  req.wait = True
+
+# Robot init sequence (required before moves)
+/ufactory/set_mode   →  xarm_msgs/srv/SetInt16  (data=0 for position mode)
+/ufactory/set_state  →  xarm_msgs/srv/SetInt16  (data=0 for ready)
+
+# TCP offset for Lite6 vacuum gripper
+gripper_tcp_offset = [0, 0, 61.1, 0, 0, 0]  # mm
+
+# Lite6 typical start pose
+start_pose = [250, 0, 200, 3.14159, 0, 0]  # x=250mm, facing down
+# Hover above object: z + 40mm
+# Grasp position:     z - 10mm
+```
+
+### Cost estimate
+
+| Service | Usage | Cost |
+|---|---|---|
+| Gemini 2.5 Pro | ~1 call per task | ~$0.01–0.03/call |
+| Gemini Flash (faster, cheaper) | ~1 call per task | ~$0.001/call |
+| Gemini Robotics-ER | per inference | TBD (preview) |
+
+At one task per minute during development: well under $5/day.
+
+### Recommended paid stack
+
+| Layer | Service | Notes |
+|---|---|---|
+| High-level reasoning | Gemini 2.5 Pro API | Available today |
+| Direct action (cloud VLA) | Gemini Robotics-ER | Apply for early access |
+| Fallback local policy | π0.5 on A30 | Best capability, self-hosted |
+| Object detection | YOLOv8 on Jetson | Fast, on-device |
+
+### Implementation sequence
+
+1. **Now (no camera):** Sign up for Google AI Studio, test Gemini 2.5 Pro with a photo of the workbench — ask it to plan a pick-and-place task
+2. **Apply for access:** Gemini Robotics-ER via Vertex AI; contact Physical Intelligence about π0 enterprise API
+3. **Camera arrives:** Wire up YOLOv8 → object positions topic; build Gemini planner bridge node
+4. **Benchmark:** Gemini 2.5 Pro planner + YOLOv8 vs Gemini Robotics-ER direct action
+5. **Fine-tune:** Collect Lite6 demos → LoRA fine-tune π0.5 on A30 for dexterous tasks
