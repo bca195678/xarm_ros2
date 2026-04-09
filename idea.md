@@ -212,6 +212,51 @@ This bridge does not exist yet for xarm_ros2 — needs to be built.
 3. Test with pretrained weights first (no fine-tuning needed to start)
 4. Collect Lite6 demonstrations and fine-tune for better accuracy
 
+### Setup process
+
+**Stage 1 — Environment (on A100/A30 server)**
+```bash
+conda create -n openvla python=3.10
+conda activate openvla
+pip install torch torchvision
+pip install transformers accelerate
+pip install openvla
+```
+
+**Stage 2 — Download model weights (~15GB from HuggingFace)**
+```bash
+huggingface-cli download openvla/openvla-7b
+```
+
+**Stage 3 — Run inference server**
+- Exposes an API endpoint on the server
+- Accepts: camera image (JPEG/PNG) + text instruction
+- Returns: action (joint deltas or end-effector pose)
+
+**Stage 4 — Build ROS2 bridge node**
+```
+/camera/color/image_raw  ──►  bridge node  ──►  OpenVLA server
+                                   │
+                                   ▼
+                          /ufactory/set_position
+```
+This node does not exist yet for xarm_ros2 — needs to be built.
+
+**Stage 5 — Fine-tuning (optional, after camera arrives)**
+1. Collect demonstrations — teleoperate Lite6, record camera + joint states
+2. Format into LeRobot/RLDS format
+3. Run LoRA fine-tuning on A100/A30
+4. Swap pretrained weights for fine-tuned weights
+
+**What you can do right now (without camera):**
+- Set up server environment (Stage 1)
+- Download weights (Stage 2)
+- Test with static images to verify model responds correctly
+
+**What needs the camera:**
+- Live inference (Stage 3 + 4)
+- Collecting demonstrations for fine-tuning (Stage 5)
+
 ---
 
 ## Hardware Available
