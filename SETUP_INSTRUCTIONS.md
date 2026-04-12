@@ -190,7 +190,7 @@ Also apply the same uncomment in `uf_ros_lib/uf_ros_lib/substitutions/planning_p
 
 **File:** `xarm_gazebo/launch/_robot_beside_table_gazebo.launch.py` (line ~271, in the `else` / Gazebo Classic branch)
 
-Change `-topic` to `-string`:
+Write the URDF to a temp file and pass it via `-file` instead of subscribing to the topic:
 
 ```python
 # Before
@@ -200,13 +200,16 @@ arguments=[
 ]
 
 # After
+urdf_file = tempfile.NamedTemporaryFile(mode='w', suffix='.urdf', delete=False)
+urdf_file.write(robot_description['robot_description'])
+urdf_file.close()
 arguments=[
-    '-string', robot_description['robot_description'],
+    '-file', urdf_file.name,
     ...
 ]
 ```
 
-This passes the URDF content directly instead of subscribing to the topic, bypassing the QoS issue entirely.
+This passes the URDF content directly via a temp file instead of subscribing to the topic, bypassing the QoS issue entirely.
 
 ---
 
@@ -220,13 +223,21 @@ ros2 launch xarm_moveit_config lite6_moveit_realmove.launch.py robot_ip:=192.168
 
 This single command starts the driver, move_group, and RViz. Do NOT run the driver separately in another terminal — it will conflict.
 
-### Launch Gazebo simulation
+### Launch Gazebo simulation (with MoveIt + RViz)
 
 ```bash
-ros2 launch xarm_gazebo lite6_beside_table_gazebo.launch.py
+ros2 launch xarm_moveit_config lite6_moveit_gazebo.launch.py
 ```
 
+This single command launches Gazebo, MoveIt, and RViz together. Do NOT run `lite6_beside_table_gazebo.launch.py` separately — it is already included.
+
 Gazebo Classic 11 is supported on Ubuntu 22.04/Humble.
+
+> **WSL2 note:** On first run, Gazebo will hang with a black window trying to download `model://table` from the internet. Pre-cache it locally to fix this:
+> ```bash
+> mkdir -p ~/.gazebo/models/table/materials/scripts
+> ```
+> Then populate `~/.gazebo/models/table/model.config`, `model.sdf`, and `materials/scripts/table.material` with the standard Gazebo table model. Once cached, Gazebo loads immediately.
 
 ### Control via service calls (without MoveIt)
 
