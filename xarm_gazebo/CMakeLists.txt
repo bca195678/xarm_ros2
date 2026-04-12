@@ -73,4 +73,9 @@ install(DIRECTORY
   DESTINATION share/${PROJECT_NAME}/
 )
 
+install(PROGRAMS
+  scripts/spawn_fence_scene.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()

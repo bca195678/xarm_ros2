@@ -14,6 +14,7 @@ from launch.actions import OpaqueFunction, IncludeLaunchDescription, DeclareLaun
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
+from launch_ros.actions import Node
 from uf_ros_lib.moveit_configs_builder import MoveItConfigsBuilder
 from uf_ros_lib.uf_robot_utils import generate_ros2_control_params_temp_file
 
@@ -144,9 +145,17 @@ def launch_setup(context, *args, **kwargs):
         }.items(),
     )
 
+    fence_scene_node = Node(
+        package='xarm_gazebo',
+        executable='spawn_fence_scene.py',
+        name='fence_scene_publisher',
+        output='screen',
+    )
+
     return [
         robot_gazebo_launch,
         robot_moveit_common_launch,
+        fence_scene_node,
     ]
 
 
