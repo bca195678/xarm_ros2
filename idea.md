@@ -492,6 +492,135 @@ Use `lerobot` Python package for dataset creation. Need a ROS2 bag → LeRobot c
 
 ---
 
+## Octo
+
+Octo is a transformer-based generalist robot policy from UC Berkeley, trained on 800k trajectories from the Open X-Embodiment dataset. Published at RSS 2024. Much smaller and faster than OpenVLA, and Jetson-compatible.
+
+GitHub: `https://github.com/octo-models/octo`  
+HuggingFace: `rail-berkeley/octo-base-1.5`, `rail-berkeley/octo-small-1.5`
+
+### Model sizes
+
+| Variant | Parameters | Best for |
+|---|---|---|
+| Octo-Small-1.5 | 27M | Jetson Xavier, fastest inference |
+| Octo-Base-1.5 | 93M | A30/A100, better accuracy |
+
+### Input / output
+
+```
+Input:
+  - RGB image (primary camera + optional wrist camera)
+  - Proprioception (current joint positions)
+  - Language instruction OR goal image
+
+Output:
+  - 4 actions per inference call (action chunking)
+  - Each action: [Δx, Δy, Δz, Δroll, Δpitch, Δyaw, gripper] — EEF deltas
+```
+
+For Lite6: 6D EEF deltas map to `/ufactory/set_position`, gripper maps to `/ufactory/set_vacuum_gripper`.
+
+### Control frequency
+
+| Hardware | Hz |
+|---|---|
+| A100 | ~15–20 Hz |
+| A30 | ~10–13 Hz |
+| Jetson Xavier (Octo-Small) | ~1–5 Hz |
+
+A30 is comfortably real-time. Octo-Small on Jetson is borderline but feasible for slow pick-and-place.
+
+### Install (JAX-based)
+
+```bash
+conda create -n octo python=3.10
+conda activate octo
+git clone https://github.com/octo-models/octo.git
+cd octo
+pip install -e .
+pip install "jax[cuda12_local]==0.4.30"
+```
+
+### Inference
+
+```python
+from octo.model.octo_model import OctoModel
+import jax
+
+model = OctoModel.load_pretrained("hf://rail-berkeley/octo-base-1.5")
+task = model.create_tasks(texts=["pick up the cup"])
+
+observation = {
+    "image_primary": rgb_image,   # numpy (H, W, 3)
+    "proprio": joint_state,        # current joint positions
+}
+
+actions = model.sample_actions(observation, task, rng=jax.random.PRNGKey(0))
+# returns shape (4, 7) — 4 steps ahead, execute all 4 before resampling
+```
+
+### Fine-tuning for Lite6
+
+- 50–200 demos per task (same requirement as OpenVLA but fine-tunes faster)
+- Hours on A100/A30 (vs. 10–15h for OpenVLA)
+- Same ROS2 bag recording pipeline as OpenVLA demos
+
+```bash
+python scripts/finetune.py \
+  --config.pretrained_path=hf://rail-berkeley/octo-base-1.5 \
+  --config.dataset_path=/path/to/your/demos \
+  --config.task_type=language_conditioned \
+  --config.finetuning_mode=head_mlp_only
+```
+
+Fine-tuning modes: `head_only` (fastest, freeze backbone), `head_mlp_only` (recommended), `full` (best results, 100+ demos).
+
+### ROS2 bridge node design
+
+No official bridge exists — same situation as OpenVLA. Structure is nearly identical:
+
+```
+xarm_octo_bridge/
+├── bridge_node.py          # main ROS2 node — 10 Hz control loop
+├── octo_client.py          # HTTP client to inference server on A30
+├── action_executor.py      # converts EEF deltas → /ufactory/set_position
+└── config/
+    └── bridge_params.yaml  # server URL, control rate, safety limits
+```
+
+```
+/camera/color/image_raw  ──►  octo_bridge_node  ──►  Octo server (A30)
+/joint_states            ──►       │
+                                   ▼
+                          /ufactory/set_position
+                          /ufactory/set_vacuum_gripper
+```
+
+### Octo vs OpenVLA
+
+| | Octo | OpenVLA |
+|---|---|---|
+| Size | 27–93M | 7B |
+| Speed | 10–20 Hz | 6–8 Hz |
+| Fine-tune time | Hours | ~10–15h |
+| Demos needed | 50–200 | 50–500 |
+| Runs on Jetson | Yes (Small) | No |
+| Zero-shot quality | Good | Better |
+| Action output | Continuous (diffusion) | Tokenized |
+
+**Recommendation:** Start with Octo for faster iteration and Jetson compatibility. Switch to OpenVLA or π0.5 if zero-shot generalization becomes the bottleneck.
+
+### Implementation path
+
+1. Set up Octo environment on A30 (Stage 1 above)
+2. Test inference with static images — no camera or arm needed
+3. Build ROS2 bridge node (reuse OpenVLA bridge design, swap model client)
+4. Camera arrives: wire up live inference loop
+5. Collect 50–200 Lite6 demos → fine-tune on A30
+
+---
+
 ## VLA Landscape Beyond OpenVLA
 
 ### π0 / π0.5 — Physical Intelligence (best capability, self-hosted)
