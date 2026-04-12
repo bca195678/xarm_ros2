@@ -13,6 +13,60 @@
       <pose>0.0 -0.84 0 0 0 0</pose>
     </include>
 
+    <!-- Safety fence: 3-sided (open at front/+Y toward operator) -->
+    <!-- Table is centered at x=0, y=-0.84; robot at x=-0.2, y=-0.5 -->
+
+    <model name="fence_back">
+      <static>true</static>
+      <pose>0 -1.75 0.75 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>1.8 0.05 1.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1.8 0.05 1.5</size></box></geometry>
+          <material>
+            <ambient>1 0.8 0 1</ambient>
+            <diffuse>1 0.8 0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="fence_left">
+      <static>true</static>
+      <pose>-0.9 -1.1 0.75 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.05 1.3 1.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.05 1.3 1.5</size></box></geometry>
+          <material>
+            <ambient>1 0.8 0 1</ambient>
+            <diffuse>1 0.8 0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="fence_right">
+      <static>true</static>
+      <pose>0.9 -1.1 0.75 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.05 1.3 1.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.05 1.3 1.5</size></box></geometry>
+          <material>
+            <ambient>1 0.8 0 1</ambient>
+            <diffuse>1 0.8 0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
     <physics type="ode">
       <max_step_size>0.001</max_step_size>
       <real_time_factor>1</real_time_factor>
