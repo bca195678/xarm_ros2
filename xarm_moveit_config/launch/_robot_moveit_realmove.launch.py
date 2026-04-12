@@ -173,12 +173,20 @@ def launch_setup(context, *args, **kwargs):
         ],
     )
 
+    fence_scene_node = Node(
+        package='xarm_gazebo',
+        executable='spawn_fence_scene.py',
+        name='fence_scene_publisher',
+        output='screen',
+    )
+
     return [
         robot_description_launch,
         robot_moveit_common_launch,
         joint_state_publisher_node,
         ros2_control_launch,
         control_node,
+        fence_scene_node,
         # robot_driver_launch,
     ]
 

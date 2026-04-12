@@ -6,11 +6,11 @@ Operational reference for running the Lite6 with ROS2. For installation see `SET
 
 ## Quick Reference
 
-| Goal | Command |
-|---|---|
-| Real robot + MoveIt + RViz | `ros2 launch xarm_moveit_config lite6_moveit_realmove.launch.py robot_ip:=192.168.1.176` |
-| Gazebo + MoveIt + RViz | `ros2 launch xarm_moveit_config lite6_moveit_gazebo.launch.py` |
-| Real robot driver only | `ros2 launch xarm_api lite6_driver.launch.py robot_ip:=192.168.1.176` |
+| Goal | Command | UI? |
+|---|---|---|
+| Real robot + MoveIt + RViz | `ros2 launch xarm_moveit_config lite6_moveit_realmove.launch.py robot_ip:=192.168.1.176` | Yes — RViz with Plan & Execute |
+| Gazebo + MoveIt + RViz | `ros2 launch xarm_moveit_config lite6_moveit_gazebo.launch.py` | Yes — Gazebo + RViz with Plan & Execute |
+| Real robot driver only | `ros2 launch xarm_api lite6_driver.launch.py robot_ip:=192.168.1.176` | **No UI** — terminal only, use service calls |
 
 ---
 
@@ -95,6 +95,8 @@ The fence is automatically added to MoveIt's planning scene on launch via `spawn
 ```
 
 The fence panels appear in RViz as collision objects. The planner will refuse paths that intersect them.
+
+The same fence is also active when using the real robot via `lite6_moveit_realmove.launch.py`.
 
 ### Recovery — arm stuck against fence
 
